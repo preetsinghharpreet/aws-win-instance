@@ -1,0 +1,5 @@
+---
+#aws key vars
+
+ec2_access_key: < PASTE ACCESS KEY HERE >
+ec2_secret_key: < PASTE SECRET KEY HERE >
