@@ -1,0 +1,88 @@
+---
+- name: Windows Instance on AWS
+  hosts: localhost
+  connection: local
+  vars:
+    region: ap-south-1
+    id: win-server   
+    key_pair: "{{ id }}-key"
+    sec_group: "{{ id }}-sg"
+    image: ami-03dbf9550d4620230  #server2019
+    flavor: t2.micro
+    keypath: /tmp
+  vars_files:
+    - key_vars.yml
+  gather_facts: false
+  tasks:
+    - name: generating keypairs
+      openssh_keypair:
+        path: "{{ keypath }}/{{ key_pair }}"
+
+    - name: adding public key in AWS
+      ec2_key:
+        region: "{{ region }}"
+        aws_access_key: "{{ ec2_access_key }}"
+        aws_secret_key: "{{ ec2_secret_key }}"
+        name: "{{ key_pair }}"
+        key_material: "{{ lookup('file', '{{ keypath }}/{{ key_pair }}.pub') }}"
+
+    - name: creating security group for win server
+      ec2_group:
+        region: "{{ region }}"
+        aws_access_key: "{{ ec2_access_key }}"
+        aws_secret_key: "{{ ec2_secret_key }}"
+        name: "{{ sec_group }}"
+        description: "win SG for ansible automation"
+        rules:
+          - proto: tcp
+            ports:
+            - 3389
+            - 5985
+            - 5986
+            cidr_ip: 0.0.0.0/0
+            rule_desc: "allow RDP and HTTP/HTTPS for WinRM Listener"
+
+
+    - name: Creating Win Instance on AWS
+      ec2:
+        region: "{{ region }}"
+        aws_access_key: "{{ ec2_access_key }}"
+        aws_secret_key: "{{ ec2_secret_key }}"
+        id: "{{ id }}"
+        group: "{{ sec_group }}"
+        image: "{{ image }}"
+        count: 1
+        state: present  
+        instance_tags:
+          Env: test
+          Name: Server-1
+          Type: Infra
+        instance_type: "{{ flavor }}"
+        key_name: "{{ key_pair }}"
+        wait: true
+      register: ec2_output
+
+    - name: validate rdp connectivity
+      wait_for:
+         host: "{{ item.public_ip }}"
+         port: 3389
+         timeout: 320
+      loop: "{{ ec2_output.instances }}"
+      loop_control:
+        label: "{{ item.id }}"
+
+    - name: storing Public IP and Name in a file
+      copy:
+        content: > 
+             "Win public ip : {{ item.public_ip }}"
+             "Win Host Name : {{ item.public_dns_name }}"
+        dest: "{{ lookup('env', 'PWD') }}/win_host_details.txt" 
+      loop: "{{ ec2_output.instances }}"
+      loop_control:
+        label: "{{ item.id }}"
+
+    - debug:
+        msg: "Instance PUBLIC IP : {{ item.public_dns_name }}" 
+      loop: "{{ ec2_output.instances }}"
+      loop_control:
+        label: "{{ item.id }}"
